@@ -24,7 +24,7 @@ function wc1c_manage_edit_taxonomy_columns($columns) {
 
 function wc1c_manage_taxonomy_custom_column($columns, $column, $id) {
   if ($column == 'wc1c_guid') {
-    $guid = get_woocommerce_term_meta($id, 'wc1c_guid');
+    $guid = get_term_meta($id, 'wc1c_guid', true);
     list($taxonomy, $guid) = explode('::', $guid);
     $columns .= $guid ? "<small>$guid</small>" : '<span class="na">–</span>';
   }
