@@ -142,6 +142,9 @@ function wc1c_import_character_data_handler($is_full, $names, $depth, $name, $da
 function wc1c_import_end_element_handler($is_full, $names, $depth, $name) {
   global $wpdb, $wc1c_groups, $wc1c_group_depth, $wc1c_group_order, $wc1c_property, $wc1c_property_order, $wc1c_requisite_properties, $wc1c_product, $wc1c_subproducts;
 
+  $msec = microtime(true);
+  $print_name = $name;
+
   if (@$names[$depth - 1] == 'Группы' && $name == 'Группа') {
     if (empty($wc1c_groups[$wc1c_group_depth]['Группы'])) {
       $result = wc1c_replace_group($is_full, $wc1c_groups[$wc1c_group_depth], $wc1c_group_order, $wc1c_groups);
@@ -184,10 +187,13 @@ function wc1c_import_end_element_handler($is_full, $names, $depth, $name) {
       }
     }
 
+
+    $guid = $wc1c_product['Ид'];
     if (strpos($wc1c_product['Ид'], '#') === false || WC1C_DISABLE_VARIATIONS) {
-      $guid = $wc1c_product['Ид'];
       wc1c_replace_product($is_full, $guid, $wc1c_product);
+
       $_post_id = wc1c_replace_product($is_full, $guid, $wc1c_product);
+
       if ($_post_id) {
         $_product = wc_get_product($_post_id);
         $_qnty = $_product->get_stock_quantity();
@@ -199,7 +205,6 @@ function wc1c_import_end_element_handler($is_full, $names, $depth, $name) {
       unset($_post_id);
     }
     else {
-      $guid = $wc1c_product['Ид'];
       list($product_guid, ) = explode('#', $guid, 2);
 
       if (empty($wc1c_subproducts) || $wc1c_subproducts[0]['product_guid'] != $product_guid) {
@@ -215,6 +220,7 @@ function wc1c_import_end_element_handler($is_full, $names, $depth, $name) {
         'product' => $wc1c_product,
       );
     }
+    $print_name = sprintf('%s[%s]', $print_name, $guid);
   }
   elseif (@$names[$depth - 1] == 'Каталог' && $name == 'Товары') {
     if ($wc1c_subproducts) wc1c_replace_subproducts($is_full, $wc1c_subproducts);
@@ -228,6 +234,8 @@ function wc1c_import_end_element_handler($is_full, $names, $depth, $name) {
 
     do_action('wc1c_post_import', $is_full);
   }
+  $msec_dx = intval((microtime(true) - $msec) * 1000);
+  if ( $msec_dx > 0) { error_log(sprintf('add %s %d', $print_name, $msec_dx)); };
 }
 
 function wc1c_term_id_by_meta($key, $value) {
@@ -473,6 +481,8 @@ function wc1c_replace_property($is_full, $property, $order) {
 }
 
 function wc1c_replace_post($guid, $post_type, $is_deleted, $is_draft, $post_title, $post_name, $post_excerpt, $post_content, $post_meta, $category_taxonomy, $category_guids, $preserve_fields) {
+  global $wpdb;
+
   $post_id = wc1c_post_id_by_meta('_wc1c_guid', $guid);
 
   if (!$post_excerpt) $post_excerpt = '';
@@ -484,6 +494,18 @@ function wc1c_replace_post($guid, $post_type, $is_deleted, $is_draft, $post_titl
   $args = compact('post_type', 'post_title', 'post_excerpt', 'post_content');
 
   if (!$post_id) {
+    $sql_check_name = "SELECT count(ID) as cnt FROM `wp_posts` WHERE post_name REGEXP %s";
+    $regexp_name = sprintf('^%s-\d+$', $post_name);
+    $post_name_number = $wpdb->get_row($wpdb->prepare($sql_check_name, $regexp_name));
+    wc1c_check_wpdb_error();
+    #error_log(print_r($post_name_number, 1));
+    if ($post_name_number && $post_name_number->cnt > 0) {
+        $post_name_number->cnt += 2;
+        #error_log(sprintf('%d', $post_name_number->cnt));
+        $post_name = sprintf('%s-%d', $post_name, $post_name_number->cnt);
+        #error_log(sprintf('%s-%d', $post_name, $post_name_number->cnt));
+    }
+
     $args = array_merge($args, array(
       'post_name' => $post_name,
       'post_status' => $is_draft ? 'draft' : 'publish',
@@ -546,6 +568,7 @@ function wc1c_replace_post($guid, $post_type, $is_deleted, $is_draft, $post_titl
 
     update_post_meta($post_id, $meta_key, $meta_value);
   }
+
 
   if (!in_array('categories', $preserve_fields)) {
     $current_category_ids = wp_get_post_terms($post_id, $category_taxonomy, "fields=ids");
@@ -633,6 +656,7 @@ function wc1c_replace_requisite_name_callback($matches) {
 
 function wc1c_replace_product($is_full, $guid, $product) {
   global $wc1c_is_moysklad;
+  $msec = microtime(true);
 
   $product = apply_filters('wc1c_import_product_xml', $product, $is_full);
   if (!$product) return;
@@ -688,6 +712,10 @@ function wc1c_replace_product($is_full, $guid, $product) {
   $description = isset($product['Описание']) ? $product['Описание'] : '';
   list($is_added, $post_id, $post_meta) = wc1c_replace_post($guid, 'product', $is_deleted, $is_draft, $post_title, $post_name, $description, $post_content, $post_meta, 'product_cat', @$product['Группы'], $preserve_fields);
 
+  $msec_dx = intval((microtime(true) - $msec) * 1000);
+  if ( $msec_dx > 0) { error_log(sprintf('replace post %s %d', $guid, $msec_dx)); };
+  $msec = microtime(true);
+
   // if (isset($product['Пересчет']['Единица'])) {
   //   $quantity = wc1c_parse_decimal($product['Пересчет']['Единица']);
   //   if (isset($product['Пересчет']['Коэффициент'])) $quantity *= wc1c_parse_decimal($product['Пересчет']['Коэффициент']);
@@ -725,6 +753,8 @@ function wc1c_replace_product($is_full, $guid, $product) {
       'is_taxonomy' => 0,
     );
   }
+
+  $msec = microtime(true);
 
   if ($product['ЗначенияСвойств']) {
     $attribute_guids = get_option('wc1c_guid_attributes', array());
@@ -809,6 +839,10 @@ function wc1c_replace_product($is_full, $guid, $product) {
     }
   }
 
+  $msec_dx = intval((microtime(true) - $msec) * 1000);
+  if ( $msec_dx > 0) { error_log(sprintf('attribute post %s %d', $guid, $msec_dx)); };
+  $msec = microtime(true);
+
   foreach ($product['ЗначенияРеквизитов'] as $requisite) {
     $attribute_values = @$requisite['Значение'];
     if (!$attribute_values) continue;
@@ -845,6 +879,8 @@ function wc1c_replace_product($is_full, $guid, $product) {
     );
   }
 
+  $msec = microtime(true);
+
   if (!in_array('attributes', $preserve_fields)) {
     $old_product_attributes = array_diff_key($current_product_attributes, $product_attributes);
     $old_taxonomies = array();
@@ -870,6 +906,10 @@ function wc1c_replace_product($is_full, $guid, $product) {
       update_post_meta($post_id, '_product_attributes', $product_attributes);
     }
   }
+
+  $msec_dx = intval((microtime(true) - $msec) * 1000);
+  if ( $msec_dx > 0) { error_log(sprintf('def attribute post %s %d', $guid, $msec_dx)); };
+  $msec = microtime(true);
 
   if (!in_array('attachments', $preserve_fields)) {
     $attachments = array();
