@@ -190,7 +190,7 @@ function wc1c_import_end_element_handler($is_full, $names, $depth, $name) {
 
     $guid = $wc1c_product['Ид'];
     if (strpos($wc1c_product['Ид'], '#') === false || WC1C_DISABLE_VARIATIONS) {
-      wc1c_replace_product($is_full, $guid, $wc1c_product);
+      #wc1c_replace_product($is_full, $guid, $wc1c_product);
 
       $_post_id = wc1c_replace_product($is_full, $guid, $wc1c_product);
 
